@@ -1,0 +1,16 @@
+---
+server_address:
+  ip: "127.0.0.1"
+  port: 1234
+  ipv6: false
+
+redis_config:
+  - ip: "127.0.0.1"
+    port: 9777
+    ipv6: false
+  - ip: "127.0.0.1"
+    port: 9778
+    ipv6: false
+io_thread_num: 4
+redis_io_thread_num: 2
+timeout: 60
