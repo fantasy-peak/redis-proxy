@@ -33,12 +33,10 @@ public:
 				*connect_result = 1;
 				if (conn_ptr->connected()) {
 					m_redis_connection_ptr = conn_ptr;
-					m_connected = true;
 					LOG_DEBUG << "address: " << m_redis_address.toIpPort() << " "
 							  << "connect!!!";
 				}
 				else {
-					m_connected = false;
 					LOG_DEBUG << "address: " << m_redis_address.toIpPort() << " "
 							  << "Disconnect!!!";
 				}
@@ -83,13 +81,7 @@ public:
 		return m_pipe_fd[0];
 	}
 
-	auto& connection() {
-		return m_redis_connection_ptr;
-	}
-
 	bool connected() const {
-		if (!m_connected)
-			return m_connected;
 		return m_redis_connection_ptr->connected();
 	}
 
@@ -115,7 +107,6 @@ private:
 	std::unique_ptr<trantor::TcpClient> m_tcp_client;
 	trantor::EventLoop* m_event_loop_ptr{nullptr};
 	trantor::TcpConnectionPtr m_redis_connection_ptr{nullptr};
-	std::atomic_bool m_connected{false};
 	redis_reply::ReplyBuilder m_reply_builder;
 	int m_pipe_fd[2];
 };

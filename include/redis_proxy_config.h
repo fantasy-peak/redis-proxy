@@ -24,8 +24,6 @@ inline RedisProxyConfig parseFile(const std::string& config_file) {
 	auto io_thread_num = config["io_thread_num"].as<uint16_t>();
 	auto redis_io_thread_num = config["io_thread_num"].as<uint16_t>();
 	auto timeout = config["timeout"].as<uint32_t>();
-	// for (auto [ip, port, db] : redis_config_vec)
-	// 	LOG_INFO << ip << " " << port << " " << db;
 	return RedisProxyConfig{server_address, redis_config_vec, io_thread_num, redis_io_thread_num, timeout};
 }
 

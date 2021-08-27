@@ -25,8 +25,13 @@ RedisProxy::RedisProxy(const RedisProxyConfig& redis_proxy_config)
 }
 
 RedisProxy::~RedisProxy() {
-	m_loop_redis_thread_pool_ptr.reset();
+	LOG_INFO << "start ~RedisProxy!!!";
+}
+
+void RedisProxy::quit() {
+	LOG_INFO << "start quit RedisProxy!!!";
 	m_tcp_server_ptr->stop();
+	m_server_event_loop_thread.quit();
 }
 
 void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, trantor::MsgBuffer* buffer) {
@@ -178,10 +183,4 @@ void RedisProxy::closeRedisClient(const trantor::TcpConnectionPtr& client_conn_p
 
 void RedisProxy::run() {
 	m_server_event_loop_thread.loop();
-}
-
-void RedisProxy::quit() {
-	LOG_INFO << "start quit RedisProxy!!!";
-	m_tcp_server_ptr->stop();
-	m_server_event_loop_thread.quit();
 }
