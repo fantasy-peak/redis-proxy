@@ -165,7 +165,7 @@ void RedisProxy::onConnection(const trantor::TcpConnectionPtr& client_conn_ptr) 
 		m_connection_redis_client.emplace(client_conn_ptr, std::move(tp));
 	}
 	else if (client_conn_ptr->disconnected()) {
-		LOG_DEBUG << "connection disconnected";
+		LOG_INFO << "connection disconnected";
 		closeRedisClient(client_conn_ptr);
 	}
 }

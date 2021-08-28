@@ -33,13 +33,10 @@ public:
 				*connect_result = 1;
 				if (conn_ptr->connected()) {
 					m_redis_connection_ptr = conn_ptr;
-					LOG_DEBUG << "address: " << m_redis_address.toIpPort() << " "
-							  << "connect!!!";
+					LOG_INFO << "address: " << m_redis_address.toIpPort() << " connect!!!";
 				}
-				else {
-					LOG_DEBUG << "address: " << m_redis_address.toIpPort() << " "
-							  << "Disconnect!!!";
-				}
+				else
+					LOG_INFO << "address: " << m_redis_address.toIpPort() << " Disconnect!!!";
 			}
 		});
 		m_tcp_client->setMessageCallback([&, ptr](const trantor::TcpConnectionPtr&, trantor::MsgBuffer* buffer) {
@@ -55,10 +52,8 @@ public:
 		});
 		m_tcp_client->setConnectionErrorCallback([this, ptr, connect_result] {
 			*connect_result = 2;
-			if (auto spt = ptr.lock()) {
-				LOG_DEBUG << "address: " << m_redis_address.toIpPort() << " "
-						  << "connector error!!!";
-			}
+			if (auto spt = ptr.lock())
+				LOG_ERROR << "address: " << m_redis_address.toIpPort() << " connect error!!!";
 		});
 		m_tcp_client->connect();
 		while (true) {
