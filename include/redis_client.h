@@ -5,7 +5,6 @@
 
 #include <trantor/net/EventLoopThread.h>
 #include <trantor/net/TcpClient.h>
-#include <uuid/uuid.h>
 
 #include "redis_reply.h"
 
@@ -21,6 +20,7 @@ public:
 	}
 
 	~RedisClient() {
+		stop();
 		close(m_pipe_fd[0]);
 		close(m_pipe_fd[1]);
 	}
@@ -69,7 +69,16 @@ public:
 	}
 
 	void stop() {
-		m_tcp_client->stop();
+		std::call_once(m_flag, [&] {
+			std::promise<void> done;
+			m_event_loop_ptr->runInLoop([&] {
+				if (m_redis_connection_ptr)
+					m_redis_connection_ptr->shutdown();
+				m_tcp_client.reset();
+				done.set_value();
+			});
+			done.get_future().wait();
+		});
 	}
 
 	template <typename T>
@@ -109,4 +118,5 @@ private:
 	trantor::TcpConnectionPtr m_redis_connection_ptr{nullptr};
 	redis_reply::ReplyBuilder m_reply_builder;
 	int m_pipe_fd[2];
+	std::once_flag m_flag;
 };
