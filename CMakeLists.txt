@@ -8,8 +8,8 @@ include("FetchContent")
 set(CMAKE_CXX_STANDARD 20)
 
 add_compile_options(
-    -pedantic-errors
-    -Wno-unused-parameter
+    -Wall
+    -Wunused-parameter
     -gdwarf-2 -O2
     -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
     -pthread

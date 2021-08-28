@@ -7,7 +7,7 @@
 
 std::unique_ptr<RedisProxy> redis_proxy_ptr;
 
-int main(int argc, char** argv) {
+int main(int, char** argv) {
 	auto redis_proxy_config = parseFile(argv[1]);
 	::signal(SIGINT, [](int) { redis_proxy_ptr->quit(); });
 	redis_proxy_ptr = std::make_unique<RedisProxy>(redis_proxy_config);
