@@ -67,8 +67,7 @@ public:
 		std::call_once(m_flag, [&] {
 			std::promise<void> done;
 			m_event_loop_ptr->runInLoop([&] {
-				if (m_redis_connection_ptr)
-					m_redis_connection_ptr->shutdown();
+				m_tcp_client->disconnect();
 				m_tcp_client.reset();
 				done.set_value();
 			});
@@ -86,11 +85,19 @@ public:
 	}
 
 	bool connected() const {
-		return m_redis_connection_ptr->connected();
+		std::promise<bool> done;
+		m_event_loop_ptr->runInLoop([&] {
+			done.set_value(m_redis_connection_ptr->connected());
+		});
+		return done.get_future().get();
 	}
 
 	bool disconnected() {
-		return m_redis_connection_ptr->disconnected();
+		std::promise<bool> done;
+		m_event_loop_ptr->runInLoop([&] {
+			done.set_value(m_redis_connection_ptr->disconnected());
+		});
+		return done.get_future().get();
 	}
 
 	void clear() {
