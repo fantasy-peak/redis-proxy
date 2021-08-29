@@ -39,7 +39,7 @@ void RedisProxy::quit() {
 }
 
 void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, trantor::MsgBuffer* buffer) {
-	std::shared_ptr<RedisClientTuple> redis_client_tuple_ptr;
+	std::shared_ptr<RedisClientTuple>* redis_client_tuple_ptr;
 	{
 		std::shared_lock<std::shared_mutex> lock(m_mtx);
 		if (!m_connection_redis_client.contains(client_conn_ptr)) {
@@ -47,9 +47,9 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 			client_conn_ptr->shutdown();
 			return;
 		}
-		redis_client_tuple_ptr = m_connection_redis_client.at(client_conn_ptr);
+		redis_client_tuple_ptr = &m_connection_redis_client.at(client_conn_ptr);
 	}
-	auto& [redis_client_vec, reply_builder_ptr] = *redis_client_tuple_ptr;
+	auto& [redis_client_vec, reply_builder_ptr] = **redis_client_tuple_ptr;
 	std::string msg{buffer->peek(), buffer->readableBytes()};
 	buffer->retrieveAll();
 	(*reply_builder_ptr) << msg;
