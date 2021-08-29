@@ -11,17 +11,21 @@ RedisProxy::RedisProxy(const RedisProxyConfig& redis_proxy_config)
 		trantor::InetAddress inet_address{redis_config.ip, redis_config.port, redis_config.ipv6};
 		m_redis_inet_address.emplace_back(std::move(inet_address));
 	}
+	LOG_INFO << "redis_io_thread_num:" << m_redis_proxy_config.redis_io_thread_num;
 	m_loop_redis_thread_pool_ptr = std::make_unique<trantor::EventLoopThreadPool>(m_redis_proxy_config.redis_io_thread_num);
 	m_loop_redis_thread_pool_ptr->start();
-	trantor::InetAddress addr(m_redis_proxy_config.server_address.ip, m_redis_proxy_config.server_address.port, m_redis_proxy_config.server_address.ipv6);
+	trantor::InetAddress addr(m_redis_proxy_config.endpoint.ip, m_redis_proxy_config.endpoint.port, m_redis_proxy_config.endpoint.ipv6);
 	LOG_INFO << "start create server:" << addr.toIpPort();
 	m_tcp_server_ptr = std::make_unique<trantor::TcpServer>(&m_server_event_loop_thread, addr, "redis-proxy-server");
 	m_tcp_server_ptr->setRecvMessageCallback([this](const trantor::TcpConnectionPtr& conn_ptr, trantor::MsgBuffer* buffer) {
 		onMessage(conn_ptr, buffer);
 	});
 	m_tcp_server_ptr->setConnectionCallback([this](const trantor::TcpConnectionPtr& conn_ptr) { onConnection(conn_ptr); });
+	LOG_INFO << "server io loop num:" << m_redis_proxy_config.io_thread_num;
 	m_tcp_server_ptr->setIoLoopNum(m_redis_proxy_config.io_thread_num);
 	m_tcp_server_ptr->start();
+	LOG_INFO << "poll_interval:" << m_redis_proxy_config.poll_interval;
+	LOG_INFO << "timeout:" << m_redis_proxy_config.timeout;
 }
 
 RedisProxy::~RedisProxy() {
@@ -77,7 +81,7 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 	auto work_redis_client_size = work_redis_client.size();
 	bool has_send_rsp{false};
 	while (true) {
-		auto ret = ::poll(pollfds.data(), pollfds.size(), 200);
+		auto ret = ::poll(pollfds.data(), pollfds.size(), m_redis_proxy_config.poll_interval);
 		if (ret == 0) {
 			LOG_DEBUG << "check connection: " << work_redis_client.size();
 			size_t disconnected_num = 0;

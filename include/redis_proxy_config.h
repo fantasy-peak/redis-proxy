@@ -9,22 +9,25 @@ struct InetAddress {
 };
 
 struct RedisProxyConfig {
-	InetAddress server_address;
+	InetAddress endpoint;
 	std::vector<InetAddress> redis_config_vec;
 	uint16_t io_thread_num;
 	uint16_t redis_io_thread_num;
 	uint32_t timeout;
+	uint32_t poll_interval;
 };
 
 inline RedisProxyConfig parseFile(const std::string& config_file) {
 	RedisProxyConfig redis_proxy_config;
 	YAML::Node config = YAML::LoadFile(config_file);
-	auto server_address = config["server_address"].as<InetAddress>();
-	auto redis_config_vec = config["redis_config"].as<std::vector<InetAddress>>();
-	auto io_thread_num = config["io_thread_num"].as<uint16_t>();
-	auto redis_io_thread_num = config["io_thread_num"].as<uint16_t>();
-	auto timeout = config["timeout"].as<uint32_t>();
-	return RedisProxyConfig{server_address, redis_config_vec, io_thread_num, redis_io_thread_num, timeout};
+	return RedisProxyConfig{
+		config["endpoint"].as<InetAddress>(),
+		config["redis_config"].as<std::vector<InetAddress>>(),
+		config["io_thread_num"].as<uint16_t>(),
+		config["redis_io_thread_num"].as<uint16_t>(),
+		config["timeout"].as<uint32_t>(),
+		config["poll_interval"].as<uint32_t>(),
+	};
 }
 
 namespace YAML {
