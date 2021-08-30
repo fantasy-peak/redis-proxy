@@ -16,3 +16,4 @@ io_thread_num: 4
 redis_io_thread_num: 2
 timeout: 60 #second
 poll_interval: 200 # millisecond
+log_level: "kDebug" # kTrace, kDebug, kInfo, kWarn, kError, kFatal, kNumberOfLogLevels

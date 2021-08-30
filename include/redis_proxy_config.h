@@ -15,6 +15,7 @@ struct RedisProxyConfig {
 	uint16_t redis_io_thread_num;
 	uint32_t timeout;
 	uint32_t poll_interval;
+	std::string log_level;
 };
 
 inline RedisProxyConfig parseFile(const std::string& config_file) {
@@ -27,6 +28,7 @@ inline RedisProxyConfig parseFile(const std::string& config_file) {
 		config["redis_io_thread_num"].as<uint16_t>(),
 		config["timeout"].as<uint32_t>(),
 		config["poll_interval"].as<uint32_t>(),
+		config["log_level"].as<std::string>(),
 	};
 }
 
