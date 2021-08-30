@@ -45,7 +45,7 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 		if (!m_connection_redis_client.contains(client_conn_ptr)) {
 			lock.unlock();
 			LOG_ERROR << "connection not exist!!!";
-			client_conn_ptr->shutdown();
+			client_conn_ptr->forceClose();
 			return;
 		}
 		redis_client_tuple_ptr = &m_connection_redis_client.at(client_conn_ptr);
@@ -75,7 +75,7 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 	reply_builder_ptr->reset();
 	if (work_redis_client.empty()) {
 		LOG_DEBUG << "all redis client disconnected!!!! ";
-		client_conn_ptr->shutdown();
+		client_conn_ptr->forceClose();
 		closeRedisClient(client_conn_ptr);
 		return;
 	}
@@ -97,7 +97,7 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 			}
 			if (disconnected_num == work_redis_client_size) {
 				LOG_DEBUG << "all redis client disconnected!!!! ";
-				client_conn_ptr->shutdown();
+				client_conn_ptr->forceClose();
 				closeRedisClient(client_conn_ptr);
 				return;
 			}
@@ -116,7 +116,7 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 			}
 			if (disconnected_num == work_redis_client_size) {
 				LOG_DEBUG << "all redis client timeout!!!! ";
-				client_conn_ptr->shutdown();
+				client_conn_ptr->forceClose();
 				closeRedisClient(client_conn_ptr);
 				return;
 			}
