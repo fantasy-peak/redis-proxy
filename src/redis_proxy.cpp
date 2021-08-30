@@ -43,6 +43,7 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 	{
 		std::shared_lock<std::shared_mutex> lock(m_mtx);
 		if (!m_connection_redis_client.contains(client_conn_ptr)) {
+			lock.unlock();
 			LOG_ERROR << "connection not exist!!!";
 			client_conn_ptr->shutdown();
 			return;
@@ -163,8 +164,10 @@ void RedisProxy::onConnection(const trantor::TcpConnectionPtr& client_conn_ptr) 
 			return;
 		}
 		auto tp = std::make_shared<RedisClientTuple>(std::move(redis_client_vec), std::make_unique<redis_reply::ReplyBuilder>(true));
-		std::unique_lock<std::shared_mutex> lk(m_mtx);
-		m_connection_redis_client.emplace(client_conn_ptr, std::move(tp));
+		{
+			std::unique_lock<std::shared_mutex> lk(m_mtx);
+			m_connection_redis_client.emplace(client_conn_ptr, std::move(tp));
+		}
 	}
 	else if (client_conn_ptr->disconnected()) {
 		LOG_INFO << "connection disconnected";
