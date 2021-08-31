@@ -22,7 +22,6 @@ private:
 	void onMessage(const trantor::TcpConnectionPtr&, trantor::MsgBuffer*);
 	void onConnection(const trantor::TcpConnectionPtr&);
 	bool createRedisClient(const trantor::TcpConnectionPtr&);
-	void closeRedisClient(const trantor::TcpConnectionPtr&);
 
 	RedisProxyConfig m_redis_proxy_config;
 	std::vector<trantor::InetAddress> m_redis_inet_address;

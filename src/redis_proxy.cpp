@@ -76,7 +76,6 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 	if (work_redis_client.empty()) {
 		LOG_DEBUG << "all redis client disconnected!!!! ";
 		client_conn_ptr->forceClose();
-		closeRedisClient(client_conn_ptr);
 		return;
 	}
 	auto work_redis_client_size = work_redis_client.size();
@@ -98,7 +97,6 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 			if (disconnected_num == work_redis_client_size) {
 				LOG_DEBUG << "all redis client disconnected!!!! ";
 				client_conn_ptr->forceClose();
-				closeRedisClient(client_conn_ptr);
 				return;
 			}
 		}
@@ -117,7 +115,6 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 			if (disconnected_num == work_redis_client_size) {
 				LOG_DEBUG << "all redis client timeout!!!! ";
 				client_conn_ptr->forceClose();
-				closeRedisClient(client_conn_ptr);
 				return;
 			}
 			return;
@@ -130,7 +127,6 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 				if (::read(redis_client_ptr->socket(), &c, sizeof(c)) == -1) {
 					LOG_ERROR << "read msg error, close redis client!!!";
 					client_conn_ptr->forceClose();
-					closeRedisClient(client_conn_ptr);
 					return;
 				}
 				if (!has_send_rsp) {
@@ -171,19 +167,14 @@ void RedisProxy::onConnection(const trantor::TcpConnectionPtr& client_conn_ptr) 
 	}
 	else if (client_conn_ptr->disconnected()) {
 		LOG_INFO << "connection disconnected";
-		closeRedisClient(client_conn_ptr);
+		std::unique_lock<std::shared_mutex> lk(m_mtx);
+		if (!m_connection_redis_client.contains(client_conn_ptr))
+			return;
+		auto& [redis_client_vec, reply_builder_ptr] = *m_connection_redis_client[client_conn_ptr];
+		for (auto& redis_client_ptr : redis_client_vec)
+			redis_client_ptr->stop();
+		m_connection_redis_client.erase(client_conn_ptr);
 	}
-}
-
-void RedisProxy::closeRedisClient(const trantor::TcpConnectionPtr& client_conn_ptr) {
-	LOG_INFO << "call closeRedisClient!!!";
-	std::unique_lock<std::shared_mutex> lk(m_mtx);
-	if (!m_connection_redis_client.contains(client_conn_ptr))
-		return;
-	auto& [redis_client_vec, reply_builder_ptr] = *m_connection_redis_client[client_conn_ptr];
-	for (auto& redis_client_ptr : redis_client_vec)
-		redis_client_ptr->stop();
-	m_connection_redis_client.erase(client_conn_ptr);
 }
 
 void RedisProxy::run() {
