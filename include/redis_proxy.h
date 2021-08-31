@@ -2,6 +2,7 @@
 
 #include <shared_mutex>
 
+#include <trantor/net/EventLoopThreadPool.h>
 #include <trantor/net/TcpServer.h>
 
 #include "redis_client.h"

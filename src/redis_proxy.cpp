@@ -1,5 +1,7 @@
 
 
+#include <poll.h>
+
 #include <trantor/utils/Logger.h>
 
 #include "redis_proxy.h"
@@ -151,7 +153,7 @@ void RedisProxy::onConnection(const trantor::TcpConnectionPtr& client_conn_ptr) 
 		client_conn_ptr->setTcpNoDelay(true);
 		std::vector<std::shared_ptr<RedisClient>> redis_client_vec;
 		for (auto& redis_inet_address : m_redis_inet_address) {
-			auto redis_client_ptr = std::make_shared<RedisClient>(redis_inet_address, *m_loop_redis_thread_pool_ptr);
+			auto redis_client_ptr = std::make_shared<RedisClient>(redis_inet_address, m_loop_redis_thread_pool_ptr->getNextLoop());
 			if (redis_client_ptr->start())
 				redis_client_vec.emplace_back(std::move(redis_client_ptr));
 		}

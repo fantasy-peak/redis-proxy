@@ -1,19 +1,19 @@
 #pragma once
 
-#include <poll.h>
 #include <unistd.h>
 
-#include <trantor/net/EventLoopThread.h>
+#include <atomic>
+
+#include <trantor/net/EventLoop.h>
 #include <trantor/net/TcpClient.h>
 
 #include "redis_reply.h"
 
 class RedisClient : public std::enable_shared_from_this<RedisClient> {
 public:
-	RedisClient(const trantor::InetAddress& redis_address, trantor::EventLoopThreadPool& event_loop_thread_pool)
+	RedisClient(const trantor::InetAddress& redis_address, trantor::EventLoop* loop)
 		: m_redis_address(redis_address)
-		, m_event_loop_thread_pool(event_loop_thread_pool) {
-		m_event_loop_ptr = m_event_loop_thread_pool.getNextLoop();
+		, m_event_loop_ptr(loop) {
 		m_tcp_client = std::make_unique<trantor::TcpClient>(m_event_loop_ptr, redis_address, "tcpclienttest");
 		if (::pipe(m_pipe_fd) == -1)
 			throw std::system_error(errno, std::system_category(), "failure in RedisClient constructor");
@@ -109,7 +109,6 @@ public:
 
 private:
 	trantor::InetAddress m_redis_address;
-	trantor::EventLoopThreadPool& m_event_loop_thread_pool;
 	std::unique_ptr<trantor::TcpClient> m_tcp_client;
 	trantor::EventLoop* m_event_loop_ptr{nullptr};
 	trantor::TcpConnectionPtr m_redis_connection_ptr{nullptr};
