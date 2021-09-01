@@ -44,9 +44,7 @@ public:
 		});
 		m_tcp_client->setMessageCallback([&, ptr](const trantor::TcpConnectionPtr&, trantor::MsgBuffer* buffer) {
 			if (auto spt = ptr.lock()) {
-				std::string msg{buffer->peek(), buffer->readableBytes()};
-				buffer->retrieveAll();
-				m_reply_builder << msg;
+				m_reply_builder << buffer->read(buffer->readableBytes());
 				if (m_reply_builder.replyAvailable()) {
 					const char c = '\0';
 					write(m_pipe_fd[1], &c, sizeof(c));

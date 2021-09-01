@@ -53,9 +53,7 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 		redis_client_tuple_ptr = &m_connection_redis_client.at(client_conn_ptr);
 	}
 	auto& [redis_client_vec, reply_builder_ptr] = **redis_client_tuple_ptr;
-	std::string msg{buffer->peek(), buffer->readableBytes()};
-	buffer->retrieveAll();
-	(*reply_builder_ptr) << msg;
+	(*reply_builder_ptr) << buffer->read(buffer->readableBytes());
 	if (!reply_builder_ptr->replyAvailable())
 		return;
 	TimerFd time_fd(std::chrono::seconds(m_redis_proxy_config.timeout));
@@ -170,11 +168,6 @@ void RedisProxy::onConnection(const trantor::TcpConnectionPtr& client_conn_ptr) 
 	else if (client_conn_ptr->disconnected()) {
 		LOG_INFO << "connection disconnected";
 		std::unique_lock<std::shared_mutex> lk(m_mtx);
-		if (!m_connection_redis_client.contains(client_conn_ptr))
-			return;
-		auto& [redis_client_vec, reply_builder_ptr] = *m_connection_redis_client[client_conn_ptr];
-		for (auto& redis_client_ptr : redis_client_vec)
-			redis_client_ptr->stop();
 		m_connection_redis_client.erase(client_conn_ptr);
 	}
 }
