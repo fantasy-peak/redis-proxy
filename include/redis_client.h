@@ -20,7 +20,6 @@ public:
 	}
 
 	~RedisClient() {
-		stop();
 		close(m_pipe_fd[0]);
 		close(m_pipe_fd[1]);
 	}
@@ -28,7 +27,7 @@ public:
 	bool start() {
 		auto connect_result = std::make_shared<std::atomic<int16_t>>(0);
 		std::weak_ptr ptr = shared_from_this();
-		m_tcp_client->setConnectionCallback([&, ptr, connect_result](const trantor::TcpConnectionPtr& conn_ptr) {
+		m_tcp_client->setConnectionCallback([this, ptr, connect_result](const trantor::TcpConnectionPtr& conn_ptr) {
 			if (auto spt = ptr.lock()) {
 				*connect_result = 1;
 				if (conn_ptr->connected()) {
@@ -42,7 +41,7 @@ public:
 				}
 			}
 		});
-		m_tcp_client->setMessageCallback([&, ptr](const trantor::TcpConnectionPtr&, trantor::MsgBuffer* buffer) {
+		m_tcp_client->setMessageCallback([this, ptr](const trantor::TcpConnectionPtr&, trantor::MsgBuffer* buffer) {
 			if (auto spt = ptr.lock()) {
 				m_reply_builder << buffer->read(buffer->readableBytes());
 				if (m_reply_builder.replyAvailable()) {
@@ -64,16 +63,8 @@ public:
 		return *connect_result != 2;
 	}
 
-	void stop() {
-		std::call_once(m_flag, [&] {
-			std::promise<void> done;
-			m_event_loop_ptr->runInLoop([&] {
-				m_tcp_client->disconnect();
-				m_tcp_client.reset();
-				done.set_value();
-			});
-			done.get_future().wait();
-		});
+	void disconnect() {
+		m_tcp_client->disconnect();
 	}
 
 	template <typename T>
@@ -105,6 +96,10 @@ public:
 		return m_redis_address.toIpPort();
 	}
 
+	trantor::EventLoop* getLoop() {
+		return m_event_loop_ptr;
+	}
+
 private:
 	trantor::InetAddress m_redis_address;
 	std::unique_ptr<trantor::TcpClient> m_tcp_client;
@@ -112,6 +107,5 @@ private:
 	trantor::TcpConnectionPtr m_redis_connection_ptr{nullptr};
 	redis_reply::ReplyBuilder m_reply_builder;
 	int m_pipe_fd[2];
-	std::once_flag m_flag;
 	std::atomic_bool m_connected{false};
 };

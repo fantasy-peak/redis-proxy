@@ -106,7 +106,7 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 			for (auto& [redis_client_ptr, recv_rsp, alive] : work_redis_client) {
 				if (alive && !recv_rsp) {
 					LOG_ERROR << "start close redis client";
-					redis_client_ptr->stop();
+					redis_client_ptr->disconnect();
 					alive = false;
 				}
 				if (!alive)
@@ -151,9 +151,16 @@ void RedisProxy::onConnection(const trantor::TcpConnectionPtr& client_conn_ptr) 
 		client_conn_ptr->setTcpNoDelay(true);
 		std::vector<std::shared_ptr<RedisClient>> redis_client_vec;
 		for (auto& redis_inet_address : m_redis_inet_address) {
-			auto redis_client_ptr = std::make_shared<RedisClient>(redis_inet_address, m_loop_redis_thread_pool_ptr->getNextLoop());
+			trantor::EventLoop* loop;
+			{
+				std::lock_guard<std::mutex> lk(m_pool_mtx);
+				loop = m_loop_redis_thread_pool_ptr->getNextLoop();
+			}
+			auto redis_client_ptr = std::make_shared<RedisClient>(redis_inet_address, loop);
 			if (redis_client_ptr->start())
 				redis_client_vec.emplace_back(std::move(redis_client_ptr));
+			else
+				loop->queueInLoop([redis_client_ptr = std::move(redis_client_ptr)]() mutable { redis_client_ptr.reset(); });
 		}
 		if (redis_client_vec.empty()) {
 			LOG_ERROR << "can't create connect to all redis";
@@ -168,6 +175,11 @@ void RedisProxy::onConnection(const trantor::TcpConnectionPtr& client_conn_ptr) 
 	else if (client_conn_ptr->disconnected()) {
 		LOG_INFO << "connection disconnected";
 		std::unique_lock<std::shared_mutex> lk(m_mtx);
+		if (!m_connection_redis_client.contains(client_conn_ptr))
+			return;
+		auto& redis_client_ptr_vec = std::get<0>(*m_connection_redis_client.at(client_conn_ptr));
+		for (auto& redis_client_ptr : redis_client_ptr_vec)
+			redis_client_ptr->getLoop()->queueInLoop([redis_client_ptr = std::move(redis_client_ptr)]() mutable { redis_client_ptr.reset(); });
 		m_connection_redis_client.erase(client_conn_ptr);
 	}
 }

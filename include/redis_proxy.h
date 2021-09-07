@@ -30,5 +30,6 @@ private:
 	std::unique_ptr<trantor::TcpServer> m_tcp_server_ptr;
 	std::unique_ptr<trantor::EventLoopThreadPool> m_loop_redis_thread_pool_ptr;
 	std::shared_mutex m_mtx;
+	std::mutex m_pool_mtx;
 	std::unordered_map<trantor::TcpConnectionPtr, std::shared_ptr<RedisClientTuple>> m_connection_redis_client;
 };
