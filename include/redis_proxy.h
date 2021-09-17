@@ -13,7 +13,7 @@ class RedisProxy final {
 public:
 	using RedisClientTuple = std::tuple<std::vector<std::shared_ptr<RedisClient>>, std::unique_ptr<redis_reply::ReplyBuilder>>;
 
-	RedisProxy(const RedisProxyConfig&);
+	RedisProxy(const RedisProxyConfig&, trantor::EventLoop*);
 	~RedisProxy();
 
 	void run();
@@ -29,7 +29,8 @@ private:
 	trantor::EventLoop m_server_event_loop_thread;
 	std::unique_ptr<trantor::TcpServer> m_tcp_server_ptr;
 	std::unique_ptr<trantor::EventLoopThreadPool> m_loop_redis_thread_pool_ptr;
-	std::shared_mutex m_mtx;
+	trantor::EventLoop* m_destroy_loop_thread_ptr;
+	std::mutex m_mtx;
 	std::mutex m_pool_mtx;
 	std::unordered_map<trantor::TcpConnectionPtr, std::shared_ptr<RedisClientTuple>> m_connection_redis_client;
 };

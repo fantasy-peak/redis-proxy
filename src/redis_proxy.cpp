@@ -7,8 +7,9 @@
 #include "redis_proxy.h"
 #include "redis_proxy_timerfd.h"
 
-RedisProxy::RedisProxy(const RedisProxyConfig& redis_proxy_config)
-	: m_redis_proxy_config(redis_proxy_config) {
+RedisProxy::RedisProxy(const RedisProxyConfig& redis_proxy_config, trantor::EventLoop* destroy_loop_thread_ptr)
+	: m_redis_proxy_config(redis_proxy_config)
+	, m_destroy_loop_thread_ptr(destroy_loop_thread_ptr) {
 	for (auto& redis_config : m_redis_proxy_config.redis_config_vec) {
 		trantor::InetAddress inet_address{redis_config.ip, redis_config.port, redis_config.ipv6};
 		m_redis_inet_address.emplace_back(std::move(inet_address));
@@ -43,7 +44,7 @@ void RedisProxy::quit() {
 void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, trantor::MsgBuffer* buffer) {
 	std::shared_ptr<RedisClientTuple>* redis_client_tuple_ptr;
 	{
-		std::shared_lock<std::shared_mutex> lock(m_mtx);
+		std::unique_lock<std::mutex> lock(m_mtx);
 		if (!m_connection_redis_client.contains(client_conn_ptr)) {
 			lock.unlock();
 			LOG_ERROR << "connection not exist!!!";
@@ -56,8 +57,15 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 	(*reply_builder_ptr) << buffer->read(buffer->readableBytes());
 	if (!reply_builder_ptr->replyAvailable())
 		return;
-	TimerFd time_fd(std::chrono::seconds(m_redis_proxy_config.timeout));
-	std::vector<::pollfd> pollfds{::pollfd{time_fd.fd(), POLLIN, 0}};
+	std::unique_ptr<TimerFd> time_fd_ptr;
+	try {
+		time_fd_ptr = std::make_unique<TimerFd>(std::chrono::seconds(m_redis_proxy_config.timeout));
+	} catch (const std::system_error& e) {
+		LOG_ERROR << e.what();
+		client_conn_ptr->forceClose();
+		return;
+	}
+	std::vector<::pollfd> pollfds{::pollfd{time_fd_ptr->fd(), POLLIN, 0}};
 	std::vector<std::tuple<std::shared_ptr<RedisClient>, bool, bool>> work_redis_client;
 	for (auto it = redis_client_vec.begin(); it != redis_client_vec.end();) {
 		auto& redis_client_ptr = *it;
@@ -100,7 +108,7 @@ void RedisProxy::onMessage(const trantor::TcpConnectionPtr& client_conn_ptr, tra
 				return;
 			}
 		}
-		if (pollfds[0].revents & POLLIN && time_fd.read()) {
+		if (pollfds[0].revents & POLLIN && time_fd_ptr->read()) {
 			LOG_ERROR << "timeout!!!";
 			size_t disconnected_num{0};
 			for (auto& [redis_client_ptr, recv_rsp, alive] : work_redis_client) {
@@ -156,11 +164,15 @@ void RedisProxy::onConnection(const trantor::TcpConnectionPtr& client_conn_ptr) 
 				std::lock_guard<std::mutex> lk(m_pool_mtx);
 				loop = m_loop_redis_thread_pool_ptr->getNextLoop();
 			}
-			auto redis_client_ptr = std::make_shared<RedisClient>(redis_inet_address, loop);
-			if (redis_client_ptr->start())
-				redis_client_vec.emplace_back(std::move(redis_client_ptr));
-			else
-				loop->queueInLoop([redis_client_ptr = std::move(redis_client_ptr)]() mutable { redis_client_ptr.reset(); });
+			try {
+				auto redis_client_ptr = std::make_shared<RedisClient>(redis_inet_address, loop);
+				if (redis_client_ptr->start())
+					redis_client_vec.emplace_back(std::move(redis_client_ptr));
+				else
+					loop->queueInLoop([redis_client_ptr = std::move(redis_client_ptr)]() mutable { redis_client_ptr.reset(); });
+			} catch (const std::system_error& e) {
+				LOG_ERROR << e.what();
+			}
 		}
 		if (redis_client_vec.empty()) {
 			LOG_ERROR << "can't create connect to all redis";
@@ -168,19 +180,21 @@ void RedisProxy::onConnection(const trantor::TcpConnectionPtr& client_conn_ptr) 
 		}
 		auto tp = std::make_shared<RedisClientTuple>(std::move(redis_client_vec), std::make_unique<redis_reply::ReplyBuilder>(true));
 		{
-			std::unique_lock<std::shared_mutex> lk(m_mtx);
+			std::unique_lock<std::mutex> lk(m_mtx);
 			m_connection_redis_client.emplace(client_conn_ptr, std::move(tp));
 		}
 	}
 	else if (client_conn_ptr->disconnected()) {
-		LOG_INFO << "connection disconnected";
-		std::unique_lock<std::shared_mutex> lk(m_mtx);
-		if (!m_connection_redis_client.contains(client_conn_ptr))
-			return;
-		auto& redis_client_ptr_vec = std::get<0>(*m_connection_redis_client.at(client_conn_ptr));
-		for (auto& redis_client_ptr : redis_client_ptr_vec)
-			redis_client_ptr->getLoop()->queueInLoop([redis_client_ptr = std::move(redis_client_ptr)]() mutable { redis_client_ptr.reset(); });
-		m_connection_redis_client.erase(client_conn_ptr);
+		m_destroy_loop_thread_ptr->queueInLoop([=, this] {
+			LOG_INFO << "connection disconnected";
+			std::unique_lock<std::mutex> lk(m_mtx);
+			if (!m_connection_redis_client.contains(client_conn_ptr))
+				return;
+			auto& redis_client_ptr_vec = std::get<0>(*m_connection_redis_client.at(client_conn_ptr));
+			for (auto& redis_client_ptr : redis_client_ptr_vec)
+				redis_client_ptr->getLoop()->queueInLoop([redis_client_ptr = std::move(redis_client_ptr)]() mutable { redis_client_ptr.reset(); });
+			m_connection_redis_client.erase(client_conn_ptr);
+		});
 	}
 }
 

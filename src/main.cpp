@@ -27,10 +27,20 @@ auto convert(const std::string& log_level) {
 std::unique_ptr<RedisProxy> redis_proxy_ptr;
 
 int main(int, char** argv) {
+	std::unique_ptr<trantor::EventLoop> m_destroy_loop_thread_ptr;
+	std::promise<void> done;
+	auto m_thread = std::thread([&] {
+		m_destroy_loop_thread_ptr = std::make_unique<trantor::EventLoop>();
+		done.set_value();
+		m_destroy_loop_thread_ptr->loop();
+	});
+	done.get_future().wait();
 	auto redis_proxy_config = parseFile(argv[1]);
 	trantor::Logger::setLogLevel(convert(redis_proxy_config.log_level));
 	::signal(SIGINT, [](int) { redis_proxy_ptr->quit(); });
-	redis_proxy_ptr = std::make_unique<RedisProxy>(redis_proxy_config);
+	redis_proxy_ptr = std::make_unique<RedisProxy>(redis_proxy_config, m_destroy_loop_thread_ptr.get());
 	redis_proxy_ptr->run();
+	m_destroy_loop_thread_ptr->quit();
+	m_thread.join();
 	return 0;
 }
