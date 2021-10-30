@@ -509,6 +509,14 @@ public:
 		return *this;
 	}
 
+	ReplyBuilder& operator<<(const char* data) {
+		m_buffer += data;
+		m_old_buffer += data;
+		while (build_reply()) {
+		}
+		return *this;
+	}
+
 	void reset() {
 		m_builder = nullptr;
 		m_buffer.clear();

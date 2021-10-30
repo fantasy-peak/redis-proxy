@@ -24,22 +24,31 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(yaml-cpp)
 
 FetchContent_Declare(
-    trantor
-    GIT_REPOSITORY https://github.com/an-tao/trantor.git
+    asio
+    GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
     GIT_TAG master
-    SOURCE_DIR ${CMAKE_BINARY_DIR}/third_party/trantor
 )
-FetchContent_MakeAvailable(trantor)
+FetchContent_MakeAvailable(asio)
+
+FetchContent_Declare(
+	spdlog
+	GIT_REPOSITORY https://github.com/gabime/spdlog.git
+	GIT_TAG v1.4.2
+)
+FetchContent_MakeAvailable(spdlog)
 
 add_executable(redis-proxy
     src/main.cpp
-    src/redis_proxy.cpp
 )
 
+set(CMAKE_CXX_FLAGS "-fcoroutines")
+
 target_include_directories(redis-proxy PRIVATE include ${CMAKE_SOURCE_DIR}/include;
-    ${CMAKE_BINARY_DIR}/third_party/trantor;${CMAKE_BINARY_DIR}/third_party/yaml-cpp/include;)
+    ${CMAKE_BINARY_DIR}/_deps/asio-src/asio/include/;${CMAKE_BINARY_DIR}/third_party/yaml-cpp/include;
+    ${CMAKE_BINARY_DIR}/_deps/spdlog-src/include/;)
 
 target_link_libraries(redis-proxy 
-    trantor
     yaml-cpp
+    pthread
+    spdlog
 )

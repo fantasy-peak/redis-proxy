@@ -2,18 +2,16 @@
 endpoint:
   ip: "127.0.0.1"
   port: 1234
-  ipv6: false
 
 redis_config:
   - ip: "127.0.0.1"
-    port: 9777
+    port: 2008
     ipv6: false
   - ip: "127.0.0.1"
-    port: 9778
+    port: 2010
     ipv6: false
 
-io_thread_num: 4
-redis_io_thread_num: 2
+io_thread_num: 10
+
 timeout: 60 #second
-poll_interval: 200 # millisecond
-log_level: "kDebug" # kTrace, kDebug, kInfo, kWarn, kError, kFatal, kNumberOfLogLevels
+timeout_loop_interval: 200
