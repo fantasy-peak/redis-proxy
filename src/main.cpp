@@ -17,6 +17,57 @@
 #include "redis_proxy_config.h"
 #include "redis_reply.h"
 
+class IoContextPool final {
+public:
+	explicit IoContextPool(std::size_t);
+
+	void start();
+	void stop();
+
+	asio::io_context& getIoContext();
+
+private:
+	std::vector<std::shared_ptr<asio::io_context>> m_io_contexts;
+	std::list<asio::any_io_executor> m_work;
+	std::size_t m_next_io_context;
+	std::vector<std::thread> m_threads;
+	std::mutex m_mtx;
+};
+
+IoContextPool::IoContextPool(std::size_t pool_size)
+	: m_next_io_context(0) {
+	if (pool_size == 0)
+		throw std::runtime_error("IoContextPool size is 0");
+	for (std::size_t i = 0; i < pool_size; ++i) {
+		auto io_context_ptr = std::make_shared<asio::io_context>();
+		m_io_contexts.emplace_back(io_context_ptr);
+		m_work.emplace_back(asio::require(io_context_ptr->get_executor(), asio::execution::outstanding_work.tracked));
+	}
+}
+
+void IoContextPool::start() {
+	for (auto& context : m_io_contexts)
+		m_threads.emplace_back(std::thread([&] { context->run(); }));
+}
+
+void IoContextPool::stop() {
+	for (auto& context_ptr : m_io_contexts)
+		context_ptr->stop();
+	for (auto& th : m_threads) {
+		if (th.joinable())
+			th.join();
+	}
+}
+
+asio::io_context& IoContextPool::getIoContext() {
+	std::lock_guard<std::mutex> lk(m_mtx);
+	asio::io_context& io_context = *m_io_contexts[m_next_io_context];
+	++m_next_io_context;
+	if (m_next_io_context == m_io_contexts.size())
+		m_next_io_context = 0;
+	return io_context;
+}
+
 constexpr int reply_buffer_size = 1024 * 6;
 
 consteval int get_reply_buffer_size() {
@@ -25,15 +76,15 @@ consteval int get_reply_buffer_size() {
 
 class RedisClient final {
 public:
-	RedisClient(const std::shared_ptr<asio::ip::tcp::endpoint>& endpoint_ptr)
+	RedisClient(const std::shared_ptr<asio::ip::tcp::endpoint>& endpoint_ptr, IoContextPool& io_context_pool)
 		: m_endpoint_ptr(endpoint_ptr)
+		, m_io_context_pool(io_context_pool)
 		, m_reply_str_ptr(std::make_unique<char[]>(reply_buffer_size)) {
 		std::memset(m_reply_str_ptr.get(), 0x00, reply_buffer_size);
 	}
 
 	asio::awaitable<bool> async_connect() {
-		auto executor = co_await asio::this_coro::executor;
-		m_socket_ptr = std::make_shared<asio::ip::tcp::socket>(executor);
+		m_socket_ptr = std::make_shared<asio::ip::tcp::socket>(m_io_context_pool.getIoContext());
 		asio::error_code ec{};
 		co_await m_socket_ptr->async_connect(*m_endpoint_ptr, asio::redirect_error(asio::use_awaitable, ec));
 		if (ec) {
@@ -83,15 +134,22 @@ private:
 
 	std::shared_ptr<asio::ip::tcp::socket> m_socket_ptr;
 	std::shared_ptr<asio::ip::tcp::endpoint> m_endpoint_ptr;
+	IoContextPool& m_io_context_pool;
 	redis_reply::ReplyBuilder m_reply_builder;
 	std::unique_ptr<char[]> m_reply_str_ptr;
 };
+
+std::string get_id() {
+	std::stringstream ss;
+	ss << std::this_thread::get_id();
+	return ss.str();
+}
 
 class RedisProxy final {
 public:
 	RedisProxy(const RedisProxyConfig& redis_proxy_config)
 		: m_config(redis_proxy_config)
-		, m_io_context_ptr(std::make_unique<asio::io_context>(redis_proxy_config.io_thread_num)) {
+		, m_io_context_pool_ptr(std::make_unique<IoContextPool>(redis_proxy_config.io_thread_num)) {
 		m_timeout_loop_num = m_config.timeout * 1000 * 1000 / m_config.timeout_loop_interval;
 		spdlog::info("[RedisProxy::RedisProxy] m_timeout_loop_num: {}", m_timeout_loop_num);
 		for (auto& redis_config : redis_proxy_config.redis_config_vec) {
@@ -102,25 +160,19 @@ public:
 	}
 
 	void start() {
-		asio::co_spawn(*m_io_context_ptr, listener(), asio::detached);
-		for (int i = 0; i < m_config.io_thread_num; i++)
-			m_threads.emplace_back(std::thread([&] { m_io_context_ptr->run(); }));
-		std::ranges::for_each(m_threads, [](auto& p) { p.join(); });
+		m_io_context_pool_ptr->start();
+		asio::co_spawn(m_io_context_pool_ptr->getIoContext(), listener(), asio::detached);
 	}
 
 	void stop() {
-		m_io_context_ptr->stop();
-	}
-
-	auto& context() {
-		return *m_io_context_ptr;
+		m_io_context_pool_ptr->stop();
 	}
 
 private:
 	asio::awaitable<std::vector<std::shared_ptr<RedisClient>>> create_client() {
 		std::vector<std::shared_ptr<RedisClient>> redis_clients;
 		for (auto& endpoint_ptr : m_endpoint_ptrs) {
-			auto tcp_client_ptr = std::make_shared<RedisClient>(endpoint_ptr);
+			auto tcp_client_ptr = std::make_shared<RedisClient>(endpoint_ptr, *m_io_context_pool_ptr);
 			auto ret = co_await tcp_client_ptr->async_connect();
 			if (!ret)
 				continue;
@@ -142,6 +194,11 @@ private:
 		auto get_buffer_max_size = []() consteval {
 			return buffer_size - 1;
 		};
+		auto remote_endpoint_func = [&] {
+			std::stringstream ss;
+			ss << socket.remote_endpoint();
+			return ss.str();
+		};
 		for (;;) {
 			std::erase_if(redis_clients, [](auto& redis_client_ptr) { return !redis_client_ptr->is_open(); });
 			if (redis_clients.empty()) {
@@ -154,7 +211,7 @@ private:
 			[[maybe_unused]] auto [ec, n] = co_await socket.async_read_some(asio::buffer(buffer_ptr.get(), get_buffer_max_size()),
 				asio::experimental::as_tuple(asio::use_awaitable));
 			if (ec) {
-				spdlog::error("[RedisProxy::process_request] async_read_some [{}]", ec.message());
+				spdlog::error("[RedisProxy::process_request] async_read_some [{}] [{}]", ec.message(), remote_endpoint_func());
 				socket.close();
 				co_return;
 			}
@@ -163,7 +220,6 @@ private:
 				continue;
 			auto forward_data_ptr = std::make_shared<std::string>(std::move(reply_builder_ptr->data()));
 			reply_builder_ptr->reset();
-
 			// 0 Pending, 1 Done, 2 Error
 			auto dispatch = [](std::shared_ptr<std::string> forward_data_ptr,
 								std::shared_ptr<std::tuple<std::atomic<int16_t>, std::string, std::shared_ptr<RedisClient>>> done) -> asio::awaitable<void> {
@@ -181,7 +237,6 @@ private:
 				redis_rsp_str = std::move(recv_opt.value());
 				state = 1;
 			};
-
 			std::vector<std::shared_ptr<std::tuple<std::atomic<int16_t>, std::string, std::shared_ptr<RedisClient>>>> dones;
 			auto executor = co_await asio::this_coro::executor;
 			for (auto& redis_client_ptr : redis_clients) {
@@ -215,8 +270,8 @@ private:
 							co_return;
 						*has_send_rsp = true;
 						co_await socket.async_write_some(asio::buffer(str.c_str(), str.size()), asio::use_awaitable);
-					} catch (const std::exception&) {
-						std::cout << "响应客户端失败" << std::endl;
+					} catch (const std::exception& ec) {
+						spdlog::error("[RedisProxy::async_write_some] async_read_some [{}] [{}]", ec.what(), remote_endpoint_func());
 					}
 					co_return;
 				};
@@ -238,6 +293,7 @@ private:
 				}
 				timer.expires_at(timer.expiry() + asio::chrono::microseconds(m_config.timeout_loop_interval));
 			}
+
 			for (auto& ptr : dones) {
 				auto& [state, str, client_ptr] = *ptr;
 				if (state == 0)
@@ -250,14 +306,20 @@ private:
 		auto executor = co_await asio::this_coro::executor;
 		asio::ip::tcp::acceptor acceptor(executor, {asio::ip::address::from_string(m_config.endpoint.ip), m_config.endpoint.port});
 		for (;;) {
-			asio::ip::tcp::socket socket = co_await acceptor.async_accept(asio::use_awaitable_t(__FILE__, __LINE__, __PRETTY_FUNCTION__));
-			asio::co_spawn(executor, process_request(std::move(socket)), asio::detached);
+			auto& ctx = m_io_context_pool_ptr->getIoContext();
+			asio::ip::tcp::socket socket{ctx};
+			asio::error_code ec{};
+			co_await acceptor.async_accept(socket, asio::redirect_error(asio::use_awaitable, ec));
+			if (ec) {
+				spdlog::error("[RedisClient::RedisProxy] async_accept [{}] error.", ec.message());
+				continue;
+			}
+			asio::co_spawn(ctx, process_request(std::move(socket)), asio::detached);
 		}
 	}
 
 	RedisProxyConfig m_config;
-	std::shared_ptr<asio::io_context> m_io_context_ptr;
-	std::vector<std::thread> m_threads;
+	std::unique_ptr<IoContextPool> m_io_context_pool_ptr;
 	std::vector<std::shared_ptr<asio::ip::tcp::endpoint>> m_endpoint_ptrs;
 	uint32_t m_timeout_loop_num;
 };
@@ -267,9 +329,11 @@ int main(int, char** argv) {
 		auto redis_proxy_config_ptr = parse_file(argv[1]);
 		RedisProxy redis_proxy{*redis_proxy_config_ptr};
 		redis_proxy_config_ptr.reset();
-		asio::signal_set signals(redis_proxy.context(), SIGINT, SIGTERM);
-		signals.async_wait([&](auto, auto) { redis_proxy.stop(); });
 		redis_proxy.start();
+		asio::io_context context;
+		asio::signal_set signals(context, SIGINT, SIGTERM);
+		signals.async_wait([&](auto, auto) { redis_proxy.stop(); });
+		context.run();
 		return 0;
 	} catch (std::exception& e) {
 		spdlog::info("[RedisProxy] Exception: {}", e.what());
